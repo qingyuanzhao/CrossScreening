@@ -4,19 +4,21 @@
 \alias{sen}
 \title{Sensivity analysis with signed score test}
 \usage{
-sen(d, mm = NULL, gamma = 1, alternative = c("upper", "lower"),
-  score.method = c("approximate", "exact"))
+sen(d, mm = NULL, gamma = 1, alternative = c("greater", "less"),
+  score.method = c("approximate", "exact"), tau = 0)
 }
 \arguments{
 \item{d}{a vector of treatment-minus-control differences}
 
-\item{mm}{a vector (m, munder, mover) that indicates the U-statistic. NULL means Wilcoxon's signed rank test.}
+\item{mm}{a vector (m, munder, mover) or a matrix, each column a vector (m, munder, mover) that indicates the U-statistic.s NULL means Wilcoxon's signed rank test.}
 
 \item{gamma}{a vector of sensitivity parameters (must be >= 1).}
 
+\item{alternative}{report p-value corresponds to the maximum ("upper") or minimum ("lower") bound}
+
 \item{score.method}{either approximate score or exact score}
 
-\item{tail}{report p-value corresponds to the maximum ("upper") or minimum ("lower") bound}
+\item{tau}{a scalar, null hypothesis is the additive effect is \code{tau} (default 0)}
 }
 \value{
 A list
@@ -28,14 +30,16 @@ A list
 \item{E}{Means of the test statistic under sensivity \code{gamma}}
 \item{V}{Variances of the test statistic under sensitivity \code{gamma}}
 \item{eff.size}{Effect size of T compared to E and V}
+\item{E.gamma1}{Expectation of T under null at Gamma = 1}
 }
 }
 \description{
 This function implements Rosenbaum's sensitivity analysis for pair-matched observational study with general signed score test. It is faster and more flexible than the \code{psens} function in the package \code{rbounds}.
 }
 \examples{
-d <- rnorm(100) + 1
-sen(d, gamma = c(1, 2, 3, 4, 5, 6))
+data(lead)
+d.lead <- lead$exposed - lead$control
+sen(d.lead, gamma = c(1, 2, 3, 4, 5, 6))
 
 }
 \author{
@@ -43,7 +47,7 @@ Paul Rosenbaum, Qingyuan Zhao
 }
 \references{
 \itemize{
-\item{Rosenbaum, Paul R. \emph{Observational Studies}. Springer New York, 2002. 1-17.}
+\item{Rosenbaum, Paul R. \emph{Observational Studies}. Springer New York, 2002.}
 \item{Rosenbaum, P. R. (2011). A New u-Statistic with Superior Design Sensitivity in Matched Observational Studies. \emph{Biometrics}, 67(3), 1017-1027.}
 }
 }

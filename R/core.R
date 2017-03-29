@@ -41,10 +41,11 @@ multrnks <- function (rk, mm, score.method = c("approximate", "exact"))
 #' This function implements Rosenbaum's sensitivity analysis for pair-matched observational study with general signed score test. It is faster and more flexible than the \code{psens} function in the package \code{rbounds}.
 #'
 #' @param d a vector of treatment-minus-control differences
-#' @param mm a vector (m, munder, mover) that indicates the U-statistic. NULL means Wilcoxon's signed rank test.
+#' @param mm a vector (m, munder, mover) or a matrix, each column a vector (m, munder, mover) that indicates the U-statistic.s NULL means Wilcoxon's signed rank test.
 #' @param gamma a vector of sensitivity parameters (must be >= 1).
-#' @param tail report p-value corresponds to the maximum ("upper") or minimum ("lower") bound
+#' @param alternative report p-value corresponds to the maximum ("upper") or minimum ("lower") bound
 #' @param score.method either approximate score or exact score
+#' @param tau a scalar, null hypothesis is the additive effect is \code{tau} (default 0)
 #'
 #' @importFrom stats pnorm
 #'
@@ -57,11 +58,12 @@ multrnks <- function (rk, mm, score.method = c("approximate", "exact"))
 #' \item{E}{Means of the test statistic under sensivity \code{gamma}}
 #' \item{V}{Variances of the test statistic under sensitivity \code{gamma}}
 #' \item{eff.size}{Effect size of T compared to E and V}
+#' \item{E.gamma1}{Expectation of T under null at Gamma = 1}
 #' }
 #'
 #' @references
 #' \itemize{
-#' \item{Rosenbaum, Paul R. \emph{Observational Studies}. Springer New York, 2002. 1-17.}
+#' \item{Rosenbaum, Paul R. \emph{Observational Studies}. Springer New York, 2002.}
 #' \item{Rosenbaum, P. R. (2011). A New u-Statistic with Superior Design Sensitivity in Matched Observational Studies. \emph{Biometrics}, 67(3), 1017-1027.}
 #' }
 #'
@@ -69,13 +71,15 @@ multrnks <- function (rk, mm, score.method = c("approximate", "exact"))
 #' @export
 #'
 #' @examples
-#' d <- rnorm(100) + 1
-#' sen(d, gamma = c(1, 2, 3, 4, 5, 6))
+#' data(lead)
+#' d.lead <- lead$exposed - lead$control
+#' sen(d.lead, gamma = c(1, 2, 3, 4, 5, 6))
 #'
-sen <- function(d, mm = NULL, gamma = 1, alternative = c("greater", "less"), score.method = c("approximate", "exact")) {
+sen <- function(d, mm = NULL, gamma = 1, alternative = c("greater", "less"), score.method = c("approximate", "exact"), tau = 0) {
 
     score.method <- match.arg(score.method, c("approximate", "exact"))
     alternative <- match.arg(alternative, c("greater", "less"))
+    d <- d - tau
     if (alternative == "less") {
         d <- - d
     }
@@ -114,13 +118,13 @@ sen <- function(d, mm = NULL, gamma = 1, alternative = c("greater", "less"), sco
     gammahat <- max(1, kappahat / (1 - kappahat))
 
     p.value2 <- 2 * pmin(p.value, 1 - pnorm((sum(qs) - Ts - ET)/sqrt(VT)), 1/2)
-    devc <- pmax(0, dev)
-    
+    ## devc <- pmax(0, dev)
+
     names(p.value) <- gamma
     names(p.value2) <- gamma
     names(ET) <- gamma
     names(VT) <- gamma
-    names(devc) <- gamma
+    names(dev) <- gamma
 
     return(list(p.value=p.value,
                 p.value2=p.value2,
@@ -128,7 +132,65 @@ sen <- function(d, mm = NULL, gamma = 1, alternative = c("greater", "less"), sco
                 T=Ts,
                 E=ET,
                 V=VT,
-                eff.size=devc))
+                eff.size=dev,
+                E.gamma1=ETGamma1))
+}
+
+#' Point estimate and confidence interval for sensitivity analysis
+#'
+#' @inheritParams sen
+#' @param mm a vector (m, munder, mover) that indicates the U-statistic. Does not support matrix \code{mm} in this function.
+#' @param alpha significance level for the outer confidence interval
+#' @param alpha.up upper-tail probability of the confidence interval
+#' @param alpha.low lower-tail probability of the confidence interval
+#'
+#' @return a list
+#' \describe{
+#' \item{point.estimate}{An interval of point estimates allowing for a bias of gamma in treatment assignment.}
+#' \item{ci}{An confidence interval allowing for a bias of gamma in treatment assignment.}
+#' }
+#'
+#' @details See the \code{senmwCI} function in the \code{sensitivitymw} package.
+#'
+#' @author Qingyuan Zhao
+#'
+#' @export
+#'
+#' @examples
+#' data(lead)
+#' d.lead <- lead$exposed - lead$control
+#' sen.ci(d.lead, gamma = c(1, 2), alpha.up = 0, alpha.low = 0.05)
+#'
+sen.ci <- function(d, mm = c(2, 2, 2), gamma = 1, alpha = 0.05, alpha.up = alpha/2, alpha.low = alpha/2, score.method = c("approximate", "exact")) {
+
+    mm <- as.matrix(mm)
+    stopifnot(nrow(mm) == 3 & ncol(mm) == 1)
+
+    score.method <- match.arg(score.method, c("approximate", "exact"))
+
+    inner.ci.fun <- function(tau, alternative, j) {
+        sen(d, mm, gamma, alternative = alternative, score.method = score.method, tau = tau)$eff.size[j]
+    }
+    inner.ci.low <- sapply(1:length(gamma), function(j) uniroot(inner.ci.fun, range(d), alternative = "greater", j = j)$root)
+    inner.ci.up <- sapply(1:length(gamma), function(j) uniroot(inner.ci.fun, range(d), alternative = "less", j = j)$root)
+
+    outer.ci.fun <- function(tau, alternative, j, alpha) {
+        sen(d, mm, gamma, alternative = alternative, score.method = score.method, tau = tau)$p.value[j] - alpha
+    }
+    outer.ci.low <- sapply(1:length(gamma), function(j) tryCatch(uniroot(outer.ci.fun, range(d) + 100 * max(gamma) * sd(d) * c(-1, 1), alternative = "greater", j = j, alpha = alpha.low)$root, error = function(e) -Inf))
+    outer.ci.up <- sapply(1:length(gamma), function(j) tryCatch(uniroot(outer.ci.fun, range(d) + 100 * max(gamma) * sd(d) * c(-1, 1), alternative = "less", j = j, alpha = alpha.up)$root, error = function(e) Inf))
+
+    inner.ci <- cbind(inner.ci.low, inner.ci.up)
+    rownames(inner.ci) <- gamma
+    colnames(inner.ci) <- c("low", "up")
+
+    outer.ci <- cbind(outer.ci.low, outer.ci.up)
+    rownames(outer.ci) <- gamma
+    colnames(outer.ci) <- c("low", "up")
+
+    return(list(point.estimate = inner.ci,
+                ci = outer.ci))
+
 }
 
 #' Compute sensitivity value
@@ -136,6 +198,7 @@ sen <- function(d, mm = NULL, gamma = 1, alternative = c("greater", "less"), sco
 #' @param alpha significance level
 #' @param mm test statistic, either a vector of length 3 or a matrix of three rows where each column corresponds to a U-statistic. Default is the (approximate) Wilcoxon's signed rank test.
 #' @param score.method either approximate score or exact score
+#' @param alternative report p-value corresponds to the maximum ("upper") or minimum ("lower") bound
 #'
 #' @importFrom stats qnorm
 #'
@@ -153,7 +216,7 @@ sen <- function(d, mm = NULL, gamma = 1, alternative = c("greater", "less"), sco
 #' gamma.star
 #' sen(d, mm = c(2, 2, 2), gamma = gamma.star[1])$p.value # should equal the significance level 0.05
 #'
-sen.value <- function(d, alpha = 0.05, mm = c(2, 2, 2), 
+sen.value <- function(d, alpha = 0.05, mm = c(2, 2, 2),
                       alternative = c("greater", "less", "two.sided"), score.method = c("approximate", "exact")) {
 
     alternative <- match.arg(alternative, c("greater", "less", "two.sided"))
@@ -163,7 +226,7 @@ sen.value <- function(d, alpha = 0.05, mm = c(2, 2, 2),
         return(pmax(sen.value(d, alpha/2, mm, "greater", score.method),
                     sen.value(d, alpha/2, mm, "less", score.method)))
     }
-  
+
     if (ncol(as.matrix(d)) > 1) {
         return(apply(d, 2, sen.value, alpha = alpha, mm = mm, score.method = score.method))
     }
@@ -248,9 +311,12 @@ gamma2kappa <- function(gamma) {
 #' @param d2 test/screen sample, can be a matrix
 #' @param gamma sensitivity parameter (maximum odds different from a randomized experiment)
 #' @param mm a vector of matrix. If matrix, adaptively choose statistic. NULL means Wilcoxon's signed rank statistic.
+#' @param screen.value either "sen" (using sensitivity value) or "p" (using p-value).
 #' @param alpha.screen significance level used in screening.
 #' @param gamma.screen screening threshold, default is 0, meaning no screening is used.
 #' @param two.sided if TRUE, automatically select the sign to test; if FALSE, test the one-sided alternative that the center of \code{d} is positive.
+#' @param screen.method either keep all hypotheses significant at \code{gamma.screen} (option "threshold") or keep the least sensitive hypotheses (option "least.sensitive").
+#' @param least.sensitive the number of least sensitive hypotheses to keep
 #'
 #' @return \code{cross.screen} returns a list
 #' \describe{
@@ -289,9 +355,19 @@ cross.screen <- function(d1,
                          d2,
                          gamma = 1,
                          mm = c(2, 2, 2),
+                         screen.value = c("sen", "p"),
+                         screen.method = c("threshold", "least.sensitive"),
                          alpha.screen = 0.05,
-                         gamma.screen = 0,
+                         gamma.screen = gamma,
+                         least.sensitive = 2,
                          two.sided = TRUE) {
+
+    screen.value <- match.arg(screen.value, c("sen", "p"))
+    screen.method <- match.arg(screen.method, c("threshold", "least.sensitive"))
+
+    if (screen.value == "p") {
+        cross.screen.fg(d1, d2, gamma, mm, screen.method, alpha.screen, least.sensitive, alpha.screen, gamma.screen)
+    }
 
     k <- ncol(d1)
 
@@ -338,8 +414,13 @@ cross.screen <- function(d1,
     ## with the corresponding statistic (if mm has more than 1 column) and side (if two.sided = TRUE)
 
     ## Next we order the hypotheses and remove those below the gamma.screen threshold
-    s1 <- order(s1.kappa, decreasing = TRUE)[1:sum(s1.kappa > gamma2kappa(gamma.screen))]
-    s2 <- order(s2.kappa, decreasing = TRUE)[1:sum(s1.kappa > gamma2kappa(gamma.screen))]
+    if (screen.method == "threshold") {
+        s1 <- order(s1.kappa, decreasing = TRUE)[1:sum(s1.kappa > gamma2kappa(gamma.screen))]
+        s2 <- order(s2.kappa, decreasing = TRUE)[1:sum(s1.kappa > gamma2kappa(gamma.screen))]
+    } else if (screen.method == "least.sensitive") {
+        s1 <- order(s1.kappa, decreasing = TRUE)[1:least.sensitive]
+        s2 <- order(s2.kappa, decreasing = TRUE)[1:least.sensitive]
+    }
 
     ## make sure we have a hypothesis to test
     n1 <- length(s1)
@@ -363,8 +444,8 @@ cross.screen <- function(d1,
         p2[s2] <- sapply(s2, function(i) sen(d1[, i] * s2.kappa.side[i], mm[, s2.stat[i]], gamma = gamma)$p.value)
     }
 
-    p <- pmin(p1 * 2 * n1,
-              p2 * 2 * n2, 1)
+    p <- pmin(p1 * 2 * n1, p2 * 2 * n2, na.rm = TRUE)
+    p <- pmin(p, 1)
 
     return(list(s1.kappa = s1.kappa,
                 s1.stat = s1.stat,
@@ -383,8 +464,6 @@ cross.screen <- function(d1,
 #' @describeIn cross.screen Cross-screening with fixed \eqn{\Gamma}
 #'
 #' @inheritParams cross.screen
-#' @param screen.method either keep all hypotheses significant at \code{gamma.screen} (option "threshold") or keep the least sensitive hypotheses (option "least_sensitive").
-#' @param alpha.least.sensitive the number of least sensitive hypotheses to keep
 #' @return \code{cross.screen.fg} returns a list
 #' \describe{
 #' \item{s1.p}{p-values used to screen the hypotheses calculated using the first sample}
@@ -429,28 +508,29 @@ cross.screen <- function(d1,
 #' mm <- matrix(c(2, 2, 2, 8, 5, 8), ncol = 2)
 #' data.frame(outcome = names(data)[outcomes],
 #'            p.value =
-#'                cross.screen.fg(d1, d2,
-#'                                gamma = 9,
-#'                                screen.method = "least_sensitive",
-#'                                mm = mm)$p)
+#'                cross.screen(d1, d2,
+#'                             gamma = 9,
+#'                             screen.value = "p",
+#'                             screen.method = "least.sensitive",
+#'                             mm = mm)$p)
 #'
 #'
 #' @author Qingyuan Zhao
 #'
 cross.screen.fg <- function(d1, d2,
                             gamma = 1,
-                            screen.method = c("threshold", "least_sensitive"),
-                            alpha.screen = 0.05,
-                            alpha.least.sensitive = 2,
-                            gamma.screen = gamma,
                             mm = c(2, 2, 2),
+                            screen.method = c("threshold", "least.sensitive"),
+                            alpha.screen = 0.05,
+                            gamma.screen = gamma,
+                            least.sensitive = 2,
                             two.sided = TRUE) {
 
     k <- ncol(d1)
     if (!is.null(mm)) {
         mm <- as.matrix(mm)
     }
-    screen.method <- match.arg(screen.method, c("threshold", "least_sensitive"))
+    screen.method <- match.arg(screen.method, c("threshold", "least.sensitive"))
 
     ## Obtain sensitivity value for both samples and both directions of alternative
     p1.screen.pos <- sapply(1:k, function(i) sen(d1[, i], mm, gamma = gamma.screen)$p.value)
@@ -493,9 +573,9 @@ cross.screen.fg <- function(d1, d2,
     if (screen.method == "threshold") {
         s1 <- order(p1.screen)[1:sum(p1.screen <= alpha.screen)]
         s2 <- order(p2.screen)[1:sum(p2.screen <= alpha.screen)]
-    } else if (screen.method == "least_sensitive") {
-        s1 <- order(p1.screen)[1:alpha.least.sensitive]
-        s2 <- order(p2.screen)[1:alpha.least.sensitive]
+    } else if (screen.method == "least.sensitive") {
+        s1 <- order(p1.screen)[1:least.sensitive]
+        s2 <- order(p2.screen)[1:least.sensitive]
     }
 
     ## make sure we have a hypothesis to test
@@ -542,7 +622,7 @@ cross.screen.fg <- function(d1, d2,
 #' @param alpha significance level
 #' @param spread the way to spread \code{alpha}, either a vector of the same length as \code{p} or a single number to indicate equal spread in the first \code{spread} hypotheses.
 #'
-#' @return the rejected hypotheses
+#' @return the rejected hypotheses (TRUE means reject, FALSE means accept)
 #' @export
 #'
 #' @author Qingyuan Zhao
@@ -576,7 +656,7 @@ fallback.test <- function(p, alpha = 0.05, spread = 1) {
         }
     }
 
-    return(reject)
+    return(reject == 1)
 }
 
 #' Recycling procedure for multiple testing
@@ -635,6 +715,6 @@ recycle.test <- function(p, alpha = 0.05) {
         reject[3:length(p)] <- fallback.test(p[3:length(p)], alpha.current, 1)
     }
 
-    reject
+    return(reject == 1)
 
 }

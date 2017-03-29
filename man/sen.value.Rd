@@ -4,15 +4,17 @@
 \alias{sen.value}
 \title{Compute sensitivity value}
 \usage{
-sen.value(d, alpha = 0.05, mm = c(2, 2, 2),
-  score.method = c("approximate", "exact"))
+sen.value(d, alpha = 0.05, mm = c(2, 2, 2), alternative = c("greater",
+  "less", "two.sided"), score.method = c("approximate", "exact"))
 }
 \arguments{
-\item{d}{a vector of treatment-minus-control differences}
+\item{d}{a vector or matrix of treatment-minus-control differences (each column correponds to a hypothesis)}
 
 \item{alpha}{significance level}
 
 \item{mm}{test statistic, either a vector of length 3 or a matrix of three rows where each column corresponds to a U-statistic. Default is the (approximate) Wilcoxon's signed rank test.}
+
+\item{alternative}{report p-value corresponds to the maximum ("upper") or minimum ("lower") bound}
 
 \item{score.method}{either approximate score or exact score}
 }

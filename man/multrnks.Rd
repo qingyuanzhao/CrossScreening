@@ -9,7 +9,7 @@ multrnks(rk, mm, score.method = c("approximate", "exact"))
 \arguments{
 \item{rk}{a vector of ranks}
 
-\item{mm}{a vector (m, munder, mover) that indicates the U-statistic. NULL means Wilcoxon's signed rank test.}
+\item{mm}{a vector (m, munder, mover) or a matrix, each column a vector (m, munder, mover) that indicates the U-statistic.s NULL means Wilcoxon's signed rank test.}
 
 \item{score.method}{either approximate score or exact score}
 }
